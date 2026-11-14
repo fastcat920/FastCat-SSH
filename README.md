@@ -227,3 +227,13 @@ Code/file editors no longer reserve space for a hidden floating label. Source st
 at the top inset, and line numbers align to the actual text baseline using the
 editor's measured layout, including soft wraps, scrolling and text scaling. File
 line numbers remain logical lines; wrapped continuations do not get new numbers.
+
+## 0.5.6 settings and server groups
+
+Mobile navigation includes Settings, which contains backup/restore, appearance and
+workspace layout. Desktop Settings at the bottom of the sidebar expands/collapses
+those entries. Server groups have a rename action before Add Server; renaming keeps
+host IDs, credentials, group order and collapsed state. Long-press group headers to
+reorder groups, with order saved locally and included in backups.
+The command editor is narrower on desktop and shorter on mobile. Folder menus now
+share the folder border, and command/folder action spacing is tighter.

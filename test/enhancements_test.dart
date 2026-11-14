@@ -98,7 +98,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('命令库'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '维护'));
+    await tester.tap(find.text('维护'));
     await tester.pumpAndSettle();
     expect(find.text('更新服务'), findsOneWidget);
     await tester.tap(find.byTooltip('预览和编辑 更新服务'));

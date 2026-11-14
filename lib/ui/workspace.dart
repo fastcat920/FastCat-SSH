@@ -45,6 +45,7 @@ class _WorkspaceState extends State<Workspace> {
   String search = '';
   int mobilePage = 0, tool = 0, active = 0;
   bool split = false;
+  bool settingsExpanded = true, groupSaving = false;
   String selectedCategory = '默认分类';
   String? previewSnippetId;
   String draftCategory = '默认分类';
@@ -278,6 +279,110 @@ class _WorkspaceState extends State<Workspace> {
     await save();
   }
 
+  Future<void> renameGroup(String group) async {
+    if (groupSaving) return;
+    final name = (await input(
+      '修改服务器分组',
+      initial: group,
+      validator: (v) => v?.trim() != group && data.groups.contains(v?.trim())
+          ? '此分组已存在'
+          : null,
+    ))?.trim();
+    if (name == null || name == group || !mounted) return;
+    await updateGroups((next) {
+      next.groups[next.groups.indexOf(group)] = name;
+      next.hosts = [
+        for (final host in next.hosts)
+          if (host.group == group)
+            Host.fromJson({...host.toJson(), 'group': name})
+          else
+            host,
+      ];
+      next.collapsedGroups = [
+        for (final value in next.collapsedGroups) value == group ? name : value,
+      ];
+    });
+  }
+
+  Future<void> updateGroups(void Function(AppData) change) async {
+    if (groupSaving) return;
+    setState(() => groupSaving = true);
+    try {
+      final next = data.copy();
+      change(next);
+      await widget.store.save(next);
+      if (mounted) setState(() => data = next);
+    } catch (_) {
+      message('分组保存失败，原数据已保留');
+    } finally {
+      if (mounted) setState(() => groupSaving = false);
+    }
+  }
+
+  Widget groupDrag(String group, Widget child) => DragTarget<String>(
+    onWillAcceptWithDetails: (d) =>
+        !groupSaving && d.data != group && data.groups.contains(d.data),
+    onAcceptWithDetails: (d) => run(
+      () => updateGroups((next) {
+        final from = next.groups.indexOf(d.data),
+            to = next.groups.indexOf(group);
+        if (from >= 0 && to >= 0) {
+          next.groups.insert(to, next.groups.removeAt(from));
+        }
+      }),
+    ),
+    builder: (context, candidates, _) => DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: candidates.isEmpty
+              ? Colors.transparent
+              : Theme.of(context).colorScheme.primary,
+        ),
+      ),
+      child: LongPressDraggable<String>(
+        key: ValueKey('server-group-$group'),
+        data: group,
+        maxSimultaneousDrags: groupSaving ? 0 : 1,
+        feedback: Material(
+          elevation: 4,
+          child: Padding(padding: const EdgeInsets.all(12), child: Text(group)),
+        ),
+        childWhenDragging: Opacity(opacity: .35, child: child),
+        child: child,
+      ),
+    ),
+  );
+
+  List<Widget> settingsItems() => [
+    ListTile(
+      leading: const Icon(Icons.lock_outline),
+      title: const Text('备份与恢复'),
+      onTap: backupMenu,
+    ),
+    ListTile(
+      leading: const Icon(Icons.palette_outlined),
+      title: const Text('外观与终端'),
+      onTap: () => run(appearanceMenu),
+    ),
+    ListTile(
+      leading: const Icon(Icons.dashboard_customize_outlined),
+      title: const Text('工作区布局'),
+      onTap: layoutMenu,
+    ),
+  ];
+  Widget settingsPage() => ListView(
+    children: [
+      const Padding(
+        padding: EdgeInsets.all(20),
+        child: Text(
+          '设置',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+      ),
+      ...settingsItems(),
+    ],
+  );
+
   Future<void> addGroup() async {
     final name = (await input(
       '添加分组',
@@ -365,60 +470,68 @@ class _WorkspaceState extends State<Workspace> {
                 ...data.groups,
                 ...data.hosts.map((h) => h.group),
               }) ...[
-                Padding(
-                  padding: EdgeInsets.fromLTRB(12, 12, 4, 4),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          style: TextButton.styleFrom(
-                            alignment: Alignment.centerLeft,
-                            padding: EdgeInsets.zero,
-                          ),
-                          onPressed: () => run(() => toggleGroup(group)),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  group,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                groupDrag(
+                  group,
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(12, 12, 4, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            style: TextButton.styleFrom(
+                              alignment: Alignment.centerLeft,
+                              padding: EdgeInsets.zero,
+                            ),
+                            onPressed: () => run(() => toggleGroup(group)),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    group,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '（${data.hosts.where((h) => h.group == group).length}）',
                                   style: TextStyle(
-                                    fontWeight: FontWeight.w600,
                                     color: Theme.of(
                                       context,
                                     ).colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                              ),
-                              Text(
-                                '（${data.hosts.where((h) => h.group == group).length}）',
-                                style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      icon(
-                        data.collapsedGroups.contains(group)
-                            ? Icons.chevron_right
-                            : Icons.expand_more,
-                        data.collapsedGroups.contains(group)
-                            ? '展开 $group'
-                            : '折叠 $group',
-                        () => run(() => toggleGroup(group)),
-                      ),
-                      icon(
-                        Icons.add,
-                        '添加服务器',
-                        () => run(() => editHost(null, group)),
-                      ),
-                    ],
+                        icon(
+                          data.collapsedGroups.contains(group)
+                              ? Icons.chevron_right
+                              : Icons.expand_more,
+                          data.collapsedGroups.contains(group)
+                              ? '展开 $group'
+                              : '折叠 $group',
+                          () => run(() => toggleGroup(group)),
+                        ),
+                        icon(
+                          Icons.edit_outlined,
+                          '修改分组 $group',
+                          () => run(() => renameGroup(group)),
+                        ),
+                        icon(
+                          Icons.add,
+                          '添加服务器',
+                          () => run(() => editHost(null, group)),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (!data.collapsedGroups.contains(group) ||
@@ -448,22 +561,18 @@ class _WorkspaceState extends State<Workspace> {
             ],
           ),
         ),
-        Divider(height: 1),
-        ListTile(
-          leading: Icon(Icons.lock_outline),
-          title: Text('备份与恢复'),
-          onTap: backupMenu,
-        ),
-        ListTile(
-          leading: Icon(Icons.palette_outlined),
-          title: Text('外观与终端'),
-          onTap: () => run(appearanceMenu),
-        ),
-        ListTile(
-          leading: Icon(Icons.dashboard_customize_outlined),
-          title: Text('工作区布局'),
-          onTap: layoutMenu,
-        ),
+        if (MediaQuery.sizeOf(context).width >= 760) ...[
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('设置'),
+            trailing: Icon(
+              settingsExpanded ? Icons.expand_less : Icons.expand_more,
+            ),
+            onTap: () => setState(() => settingsExpanded = !settingsExpanded),
+          ),
+          if (settingsExpanded) ...settingsItems(),
+        ],
       ],
     ),
   );
@@ -1374,7 +1483,10 @@ class _WorkspaceState extends State<Workspace> {
     catalogDragTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
       final box = catalogKey.currentContext?.findRenderObject() as RenderBox?;
       final point = catalogDragPosition;
-      if (!mounted || box == null || point == null || !catalogScroll.hasClients) {
+      if (!mounted ||
+          box == null ||
+          point == null ||
+          !catalogScroll.hasClients) {
         return;
       }
       final local = box.globalToLocal(point);
@@ -1498,38 +1610,83 @@ class _WorkspaceState extends State<Workspace> {
                     category,
                     ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: bounds.maxWidth),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: ChoiceChip(
-                              avatar: Icon(Icons.folder_outlined, size: 17),
-                              label: Text(
-                                category,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                      child: Material(
+                        color: selectedCategory == category
+                            ? Theme.of(context).colorScheme.secondaryContainer
+                            : Theme.of(context).colorScheme.surfaceContainerLow,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(
+                            color: selectedCategory == category
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Semantics(
+                                selected: selectedCategory == category,
+                                child: InkWell(
+                                  onTap: () => setState(() {
+                                    selectedCategory = category;
+                                    if (previewSnippetId == null &&
+                                        !composerDirty) {
+                                      draftCategory = category;
+                                    }
+                                  }),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      8,
+                                      10,
+                                      2,
+                                      10,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.folder_outlined,
+                                          size: 17,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            category,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                              selected: selectedCategory == category,
-                              onSelected: (_) => setState(() {
-                                selectedCategory = category;
-                                if (previewSnippetId == null &&
-                                    !composerDirty) {
-                                  draftCategory = category;
-                                }
-                              }),
                             ),
-                          ),
-                          PopupMenuButton<String>(
-                            tooltip: '分类菜单 $category',
-                            icon: const Icon(Icons.more_vert, size: 20),
-                            onSelected: (action) =>
-                                run(() => manageCategory(category, action)),
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'edit', child: Text('编辑')),
-                              PopupMenuItem(value: 'delete', child: Text('删除')),
-                            ],
-                          ),
-                        ],
+                            PopupMenuButton<String>(
+                              tooltip: '分类菜单 $category',
+                              padding: EdgeInsets.zero,
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size(32, 40),
+                                maximumSize: const Size(32, 40),
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              icon: const Icon(Icons.more_vert, size: 18),
+                              onSelected: (action) =>
+                                  run(() => manageCategory(category, action)),
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(value: 'edit', child: Text('编辑')),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('删除'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1570,6 +1727,11 @@ class _WorkspaceState extends State<Workspace> {
                         children: [
                           Flexible(
                             child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.fromLTRB(8, 8, 2, 8),
+                                minimumSize: const Size(0, 40),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                               onPressed: () =>
                                   run(() => sendCatalogSnippet(snippet)),
                               child: Text(
@@ -1579,10 +1741,16 @@ class _WorkspaceState extends State<Workspace> {
                               ),
                             ),
                           ),
-                          icon(
-                            Icons.settings_outlined,
-                            '预览和编辑 ${snippet.name}',
-                            () => run(() => selectComposer(snippet)),
+                          IconButton(
+                            tooltip: '预览和编辑 ${snippet.name}',
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(32, 40),
+                              maximumSize: const Size(32, 40),
+                              padding: EdgeInsets.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.settings_outlined, size: 18),
+                            onPressed: () => run(() => selectComposer(snippet)),
                           ),
                         ],
                       ),
@@ -1606,14 +1774,14 @@ class _WorkspaceState extends State<Workspace> {
             Expanded(child: commandCatalog()),
             VerticalDivider(width: 1),
             SizedBox(
-              width: (bounds.maxWidth * .45).clamp(300.0, 430.0),
+              width: (bounds.maxWidth * .32).clamp(300.0, 360.0),
               child: commandComposer(),
             ),
           ],
         );
       }
       if (MediaQuery.viewInsetsOf(context).bottom > 0) return commandComposer();
-      final height = (bounds.maxHeight * .45).clamp(230.0, 280.0);
+      final height = (bounds.maxHeight * .32).clamp(220.0, 240.0);
       if (bounds.maxHeight < 310) return commandComposer();
       return Column(
         children: [
@@ -1789,7 +1957,7 @@ class _WorkspaceState extends State<Workspace> {
           ],
         ),
       );
-      if (bounds.maxHeight < 230) {
+      if (bounds.maxHeight < 200) {
         return SingleChildScrollView(
           child: SizedBox(height: 260, child: content()),
         );
@@ -2377,6 +2545,10 @@ class _WorkspaceState extends State<Workspace> {
                   icon: Icon(Icons.folder_outlined),
                   label: '工具',
                 ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  label: '设置',
+                ),
               ],
             )
           : null,
@@ -2392,7 +2564,9 @@ class _WorkspaceState extends State<Workspace> {
                         ? sidebar()
                         : mobilePage == 1
                         ? terminalPanel()
-                        : tools();
+                        : mobilePage == 2
+                        ? tools()
+                        : settingsPage();
                   }
                   return Row(
                     children: [

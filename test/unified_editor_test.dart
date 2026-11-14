@@ -201,7 +201,7 @@ void main() {
         2,
       );
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('服务器'));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('外观与终端'));
       await tester.pumpAndSettle();
