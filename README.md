@@ -209,3 +209,7 @@ before deleting the folder and its commands. Explicitly deleted folders stay del
 after reload, including the last folder; create a folder before saving new commands.
 Unsaved editor changes are retained as a draft when their folder is deleted.
 The command editor's Save button sits directly to the right of the red Delete icon.
+
+Saving a command clears its name and body and starts a new draft in the same folder,
+retaining the Return preference. The next save creates a new command instead of
+replacing the previous one. Failed saves retain all input for retry.

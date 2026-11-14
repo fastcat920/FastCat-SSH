@@ -1298,8 +1298,12 @@ class _WorkspaceState extends State<Workspace> {
       if (mounted) {
         setState(() {
           data = next;
-          previewSnippetId = value.id;
+          previewSnippetId = null;
           selectedCategory = value.category;
+          draftCategory = value.category;
+          composerName.clear();
+          command.clear();
+          sendFeedback = null;
         });
       }
     } catch (_) {

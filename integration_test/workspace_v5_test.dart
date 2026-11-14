@@ -138,6 +138,10 @@ void main() {
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
       expect(store.data.snippets.single.appendNewline, false);
+      expect(tester.widget<TextField>(field('命令名称')).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(field('命令内容')).controller!.text, isEmpty);
+      await tester.tap(find.byTooltip('预览和编辑 Deferred'));
+      await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
       await tester.tap(find.text('发送全部窗口'));
       await tester.pumpAndSettle();

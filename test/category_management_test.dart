@@ -138,6 +138,43 @@ void main() {
     },
   );
   testWidgets(
+    'save clears fields and creates next command rather than overwriting; failures retain input',
+    (tester) async {
+      final store = CategoryStore();
+      await open(tester, store);
+      await tester.tap(find.byTooltip('预览和编辑 命令一'));
+      await tester.pumpAndSettle();
+      await tester.enterText(field('命令名称'), '修改后的命令');
+      await tester.enterText(field('命令内容'), 'echo changed');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(store.data.snippets.single.id, 'one');
+      expect(store.data.snippets.single.body, 'echo changed');
+      expect(tester.widget<TextField>(field('命令名称')).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(field('命令内容')).controller!.text, isEmpty);
+      expect(find.byTooltip('删除命令'), findsNothing);
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, false);
+      await tester.enterText(field('命令名称'), '第二条命令');
+      await tester.enterText(field('命令内容'), 'echo two');
+      store.failSave = true;
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(field('命令内容')).controller!.text,
+        'echo two',
+      );
+      expect(store.data.snippets, hasLength(1));
+      store.failSave = false;
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(store.data.snippets, hasLength(2));
+      expect(store.data.snippets.last.id, isNot('one'));
+      expect(store.data.snippets.last.category, '默认分类');
+      expect(tester.widget<TextField>(field('命令内容')).controller!.text, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'failed category save leaves original folder and commands unchanged',
     (tester) async {
       final store = CategoryStore()..failSave = true;
