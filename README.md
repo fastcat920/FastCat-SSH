@@ -213,3 +213,17 @@ The command editor's Save button sits directly to the right of the red Delete ic
 Saving a command clears its name and body and starts a new draft in the same folder,
 retaining the Return preference. The next save creates a new command instead of
 replacing the previous one. Failed saves retain all input for retry.
+
+## 0.5.5 wrapping folders, sorting and editor alignment
+
+Command folders wrap onto multiple rows on desktop and mobile. Folders and command
+entries share a vertical catalog scroll area. Long-press a folder or command name
+and drag it onto another item to reorder; command order changes within its folder.
+The drop target is highlighted, the catalog scrolls near its top/bottom edge, and
+ordering is saved and included in portable backups. Failed persistence keeps the
+previous order. Dragging does not execute a command.
+
+Code/file editors no longer reserve space for a hidden floating label. Source starts
+at the top inset, and line numbers align to the actual text baseline using the
+editor's measured layout, including soft wraps, scrolling and text scaling. File
+line numbers remain logical lines; wrapped continuations do not get new numbers.

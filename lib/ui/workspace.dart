@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'app_input.dart';
@@ -22,6 +23,12 @@ import '../core/store.dart';
 import '../core/backup.dart';
 import '../core/connection.dart';
 import '../core/transfer.dart';
+
+class _CatalogDrag {
+  final bool folder;
+  final String id;
+  const _CatalogDrag(this.folder, this.id);
+}
 
 class Workspace extends StatefulWidget {
   final Store store;
@@ -56,6 +63,10 @@ class _WorkspaceState extends State<Workspace> {
   final sessions = <Connection>[];
   final path = TextEditingController();
   final command = SyntaxController();
+  final catalogScroll = ScrollController();
+  final catalogKey = GlobalKey();
+  Timer? catalogDragTimer;
+  Offset? catalogDragPosition;
   Connection? get current =>
       sessions.isEmpty ? null : sessions[active.clamp(0, sessions.length - 1)];
   @override
@@ -89,6 +100,8 @@ class _WorkspaceState extends State<Workspace> {
     }
     path.dispose();
     command.dispose();
+    catalogDragTimer?.cancel();
+    catalogScroll.dispose();
     composerName.dispose();
     composerNameFocus.dispose();
     searchInput.dispose();
@@ -1349,108 +1362,237 @@ class _WorkspaceState extends State<Workspace> {
         ? draftAppendNewline
         : snippet.appendNewline,
   );
-  Widget commandCatalog() => AbsorbPointer(
-    absorbing: composerSaving,
-    child: Column(
-      children: [
-        SizedBox(
-          height: 52,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              for (final category in data.categories)
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ChoiceChip(
-                        avatar: Icon(Icons.folder_outlined, size: 17),
-                        label: Text(category),
-                        selected: selectedCategory == category,
-                        onSelected: (_) => setState(() {
-                          selectedCategory = category;
-                          if (previewSnippetId == null && !composerDirty) {
-                            draftCategory = category;
-                          }
-                        }),
-                      ),
-                      PopupMenuButton<String>(
-                        tooltip: '分类菜单 $category',
-                        icon: const Icon(Icons.more_vert, size: 20),
-                        onSelected: (action) =>
-                            run(() => manageCategory(category, action)),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'edit', child: Text('编辑')),
-                          PopupMenuItem(value: 'delete', child: Text('删除')),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              TextButton.icon(
-                onPressed: () => run(newCategory),
-                icon: Icon(Icons.create_new_folder_outlined),
-                label: Text('新建分类'),
-              ),
-            ],
-          ),
+  void endCatalogDrag() {
+    catalogDragTimer?.cancel();
+    catalogDragTimer = null;
+    catalogDragPosition = null;
+  }
+
+  void startCatalogDrag() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    endCatalogDrag();
+    catalogDragTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+      final box = catalogKey.currentContext?.findRenderObject() as RenderBox?;
+      final point = catalogDragPosition;
+      if (!mounted || box == null || point == null || !catalogScroll.hasClients) {
+        return;
+      }
+      final local = box.globalToLocal(point);
+      if (local.dx < 0 || local.dx > box.size.width) return;
+      final delta = local.dy < 40
+          ? -12.0
+          : local.dy > box.size.height - 40
+          ? 12.0
+          : 0.0;
+      if (delta == 0) return;
+      catalogScroll.jumpTo(
+        (catalogScroll.offset + delta).clamp(
+          catalogScroll.position.minScrollExtent,
+          catalogScroll.position.maxScrollExtent,
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(8),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  TextButton.icon(
-                    onPressed: () => run(newComposer),
-                    icon: Icon(Icons.add),
-                    label: Text('新建命令'),
-                  ),
-                  for (final snippet in data.snippets.where(
-                    (s) => s.category == selectedCategory,
-                  ))
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 300),
-                      child: Material(
-                        color: previewSnippetId == snippet.id
-                            ? Theme.of(context).colorScheme.secondaryContainer
-                            : Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: TextButton(
-                                onPressed: () =>
-                                    run(() => sendCatalogSnippet(snippet)),
-                                child: Text(
-                                  snippet.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            icon(
-                              Icons.settings_outlined,
-                              '预览和编辑 ${snippet.name}',
-                              () => run(() => selectComposer(snippet)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+      );
+    });
+  }
+
+  Future<void> moveCatalogItem(_CatalogDrag source, String target) async {
+    if (composerSaving || source.id == target) return;
+    final next = data.copy();
+    if (source.folder) {
+      final from = next.categories.indexOf(source.id),
+          to = next.categories.indexOf(target);
+      if (from < 0 || to < 0) return;
+      next.categories.insert(to, next.categories.removeAt(from));
+    } else {
+      final from = next.snippets.indexWhere((s) => s.id == source.id);
+      final to = next.snippets.indexWhere((s) => s.id == target);
+      if (from < 0 ||
+          to < 0 ||
+          next.snippets[from].category != next.snippets[to].category) {
+        return;
+      }
+      next.snippets.insert(to, next.snippets.removeAt(from));
+    }
+    setState(() => composerSaving = true);
+    try {
+      await widget.store.save(next);
+      if (mounted) {
+        setState(() {
+          data = next;
+          composerError = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => composerError = '排序保存失败，原顺序已保留');
+    } finally {
+      if (mounted) setState(() => composerSaving = false);
+    }
+  }
+
+  Widget catalogReorderItem(
+    bool folder,
+    String id,
+    String label,
+    Widget child,
+  ) => DragTarget<_CatalogDrag>(
+    onWillAcceptWithDetails: (details) =>
+        !composerSaving &&
+        details.data.folder == folder &&
+        details.data.id != id,
+    onAcceptWithDetails: (details) =>
+        run(() => moveCatalogItem(details.data, id)),
+    builder: (context, candidates, rejected) => DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: candidates.isEmpty
+              ? Colors.transparent
+              : Theme.of(context).colorScheme.primary,
+          width: 2,
+        ),
+      ),
+      child: LongPressDraggable<_CatalogDrag>(
+        key: ValueKey('catalog-${folder ? 'folder' : 'command'}-$id'),
+        data: _CatalogDrag(folder, id),
+        maxSimultaneousDrags: composerSaving ? 0 : 1,
+        onDragStarted: startCatalogDrag,
+        onDragUpdate: (details) => catalogDragPosition = details.globalPosition,
+        onDragEnd: (_) => endCatalogDrag(),
+        onDraggableCanceled: (_, _) => endCatalogDrag(),
+        feedback: Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(8),
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 240),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
           ),
         ),
-      ],
+        childWhenDragging: Opacity(opacity: .35, child: child),
+        child: child,
+      ),
+    ),
+  );
+
+  Widget commandCatalog() => AbsorbPointer(
+    absorbing: composerSaving,
+    child: SingleChildScrollView(
+      key: catalogKey,
+      controller: catalogScroll,
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, bounds) => Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                for (final category in data.categories)
+                  catalogReorderItem(
+                    true,
+                    category,
+                    category,
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: bounds.maxWidth),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: ChoiceChip(
+                              avatar: Icon(Icons.folder_outlined, size: 17),
+                              label: Text(
+                                category,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              selected: selectedCategory == category,
+                              onSelected: (_) => setState(() {
+                                selectedCategory = category;
+                                if (previewSnippetId == null &&
+                                    !composerDirty) {
+                                  draftCategory = category;
+                                }
+                              }),
+                            ),
+                          ),
+                          PopupMenuButton<String>(
+                            tooltip: '分类菜单 $category',
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            onSelected: (action) =>
+                                run(() => manageCategory(category, action)),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'edit', child: Text('编辑')),
+                              PopupMenuItem(value: 'delete', child: Text('删除')),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                TextButton.icon(
+                  onPressed: () => run(newCategory),
+                  icon: Icon(Icons.create_new_folder_outlined),
+                  label: Text('新建分类'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: () => run(newComposer),
+                icon: Icon(Icons.add),
+                label: Text('新建命令'),
+              ),
+              for (final snippet in data.snippets.where(
+                (s) => s.category == selectedCategory,
+              ))
+                catalogReorderItem(
+                  false,
+                  snippet.id,
+                  snippet.name,
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: 300),
+                    child: Material(
+                      color: previewSnippetId == snippet.id
+                          ? Theme.of(context).colorScheme.secondaryContainer
+                          : Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: TextButton(
+                              onPressed: () =>
+                                  run(() => sendCatalogSnippet(snippet)),
+                              child: Text(
+                                snippet.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          icon(
+                            Icons.settings_outlined,
+                            '预览和编辑 ${snippet.name}',
+                            () => run(() => selectComposer(snippet)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
     ),
   );
   Widget snippetsPanel() => LayoutBuilder(

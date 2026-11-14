@@ -30,9 +30,14 @@ class ComposerStore extends Store {
   Future<String?> backgroundImage() async => null;
 }
 
-Finder input(String label) => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.labelText == label,
-);
+Finder input(String label) => ['命令内容', '文件内容'].contains(label)
+    ? find.descendant(
+        of: find.byWidgetPredicate((w) => w is CodeEditor && w.label == label),
+        matching: find.byType(TextField),
+      )
+    : find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == label,
+      );
 void main() {
   test(
     'all themed surfaces and default syntax background follow accent in both modes',

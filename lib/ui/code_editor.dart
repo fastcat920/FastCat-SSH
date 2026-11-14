@@ -29,6 +29,9 @@ class _CodeEditorState extends State<CodeEditor> {
   final scroll = ScrollController();
   final focus = FocusNode();
   final fieldKey = GlobalKey();
+  final gutterKey = GlobalKey();
+  RenderBox? gutterBox() =>
+      gutterKey.currentContext?.findRenderObject() as RenderBox?;
 
   RenderEditable? editable() {
     RenderEditable? result;
@@ -46,10 +49,6 @@ class _CodeEditorState extends State<CodeEditor> {
 
   List<int> starts = [0];
   String? cachedText;
-  TextPainter? layout;
-  double? cachedWidth;
-  TextScaler? cachedScaler;
-  Locale? cachedLocale;
   static const style = TextStyle(
     fontFamily: 'monospace',
     fontSize: 13,
@@ -91,8 +90,6 @@ class _CodeEditorState extends State<CodeEditor> {
     for (var i = 0; i < text.length; i++) {
       if (text.codeUnitAt(i) == 10) starts.add(i + 1);
     }
-    layout?.dispose();
-    layout = null;
   }
 
   void changed() {
@@ -105,7 +102,7 @@ class _CodeEditorState extends State<CodeEditor> {
     focus.removeListener(changed);
     focus.dispose();
     scroll.dispose();
-    layout?.dispose();
+
     super.dispose();
   }
 
@@ -126,26 +123,6 @@ class _CodeEditorState extends State<CodeEditor> {
     return math.max(0, lo - 1);
   }
 
-  TextPainter textLayout(double width, TextScaler scaler, Locale? locale) {
-    if (layout == null ||
-        cachedWidth != width ||
-        cachedScaler != scaler ||
-        cachedLocale != locale) {
-      layout?.dispose();
-      cachedWidth = width;
-      cachedScaler = scaler;
-      cachedLocale = locale;
-      layout = TextPainter(
-        text: TextSpan(text: widget.controller.text, style: style),
-        strutStyle: strut,
-        textDirection: TextDirection.ltr,
-        textScaler: scaler,
-        locale: locale,
-      )..layout(maxWidth: width);
-    }
-    return layout!;
-  }
-
   Future<void> jump() async {
     final line = await showDialog<int>(
       context: context,
@@ -157,21 +134,14 @@ class _CodeEditorState extends State<CodeEditor> {
     );
     focus.requestFocus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !scroll.hasClients || layout == null) return;
+      if (!mounted || !scroll.hasClients) return;
       final actual = editable();
-      final y = actual != null
-          ? actual
-                    .getLocalRectForCaret(
-                      TextPosition(offset: starts[line - 1]),
-                    )
-                    .top +
-                scroll.offset
-          : layout!
-                .getOffsetForCaret(
-                  TextPosition(offset: starts[line - 1]),
-                  Rect.zero,
-                )
-                .dy;
+      if (actual == null) return;
+      final y =
+          actual
+              .getLocalRectForCaret(TextPosition(offset: starts[line - 1]))
+              .top +
+          scroll.offset;
       scroll.jumpTo(
         y.clamp(
           scroll.position.minScrollExtent,
@@ -233,12 +203,6 @@ class _CodeEditorState extends State<CodeEditor> {
                 final gutter =
                     (starts.length.toString().length * scaler.scale(8) + 24)
                         .clamp(36.0, 90.0);
-                final width = math.max(1.0, bounds.maxWidth - gutter - 24);
-                final painter = textLayout(
-                  width,
-                  scaler,
-                  Localizations.maybeLocaleOf(context),
-                );
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -250,8 +214,9 @@ class _CodeEditorState extends State<CodeEditor> {
                           child: Semantics(
                             label: '行号，当前第 ${line + 1} 行，共 ${starts.length} 行',
                             child: CustomPaint(
+                              key: gutterKey,
                               painter: LineNumberPainter(
-                                layout: painter,
+                                gutter: gutterBox,
                                 editable: editable,
                                 starts: starts,
                                 scroll: scroll,
@@ -266,44 +231,45 @@ class _CodeEditorState extends State<CodeEditor> {
                       ),
                     ),
                     Expanded(
-                      child: TextFormField(
-                        key: fieldKey,
-                        controller: widget.controller,
-                        focusNode: focus,
-                        enabled: widget.enabled,
-                        autofocus: widget.autofocus,
-                        scrollController: scroll,
-                        expands: true,
-                        minLines: null,
-                        maxLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        smartDashesType: SmartDashesType.disabled,
-                        smartQuotesType: SmartQuotesType.disabled,
-                        textDirection: TextDirection.ltr,
-                        style: style.copyWith(color: colors.onSurface),
-                        strutStyle: strut,
-                        validator: widget.validator,
-                        autovalidateMode: AutovalidateMode.onUserInteraction,
-                        onTapOutside: (_) => focus.unfocus(),
-                        decoration: InputDecoration(
-                          labelText: widget.label,
-                          hintText: widget.hint,
-                          alignLabelWithHint: true,
-                          floatingLabelBehavior: FloatingLabelBehavior.never,
-                          filled: true,
-                          fillColor: colors.surfaceContainerLow,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.all(12),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          errorBorder: InputBorder.none,
-                          focusedErrorBorder: InputBorder.none,
-                          errorMaxLines: 2,
+                      child: Semantics(
+                        label: widget.label,
+                        child: TextFormField(
+                          key: fieldKey,
+                          controller: widget.controller,
+                          focusNode: focus,
+                          enabled: widget.enabled,
+                          autofocus: widget.autofocus,
+                          scrollController: scroll,
+                          expands: true,
+                          minLines: null,
+                          maxLines: null,
+                          textAlignVertical: TextAlignVertical.top,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          smartDashesType: SmartDashesType.disabled,
+                          smartQuotesType: SmartQuotesType.disabled,
+                          textDirection: TextDirection.ltr,
+                          style: style.copyWith(color: colors.onSurface),
+                          strutStyle: strut,
+                          validator: widget.validator,
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          onTapOutside: (_) => focus.unfocus(),
+                          decoration: InputDecoration(
+                            hintText: widget.hint ?? widget.label,
+                            floatingLabelBehavior: FloatingLabelBehavior.never,
+                            filled: true,
+                            fillColor: colors.surfaceContainerLow,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.all(12),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            errorBorder: InputBorder.none,
+                            focusedErrorBorder: InputBorder.none,
+                            errorMaxLines: 2,
+                          ),
                         ),
                       ),
                     ),
@@ -319,7 +285,7 @@ class _CodeEditorState extends State<CodeEditor> {
 }
 
 class LineNumberPainter extends CustomPainter {
-  final TextPainter layout;
+  final RenderBox? Function() gutter;
   final RenderEditable? Function() editable;
   final List<int> starts;
   final ScrollController scroll;
@@ -327,7 +293,7 @@ class LineNumberPainter extends CustomPainter {
   final Color color, active;
   final TextScaler scaler;
   LineNumberPainter({
-    required this.layout,
+    required this.gutter,
     required this.editable,
     required this.starts,
     required this.scroll,
@@ -344,13 +310,29 @@ class LineNumberPainter extends CustomPainter {
               .top +
           (scroll.hasClients ? scroll.offset : 0);
     }
-    return layout
-        .getOffsetForCaret(TextPosition(offset: starts[line]), Rect.zero)
-        .dy;
+    return 0;
+  }
+
+  double baseline(int line) {
+    final actual = editable(), box = gutter();
+    if (actual == null || box == null) return 0;
+    final first = actual
+        .getLocalRectForCaret(const TextPosition(offset: 0))
+        .top;
+    final caret = actual
+        .getLocalRectForCaret(TextPosition(offset: starts[line]))
+        .top;
+    final baseline =
+        actual.getDryBaseline(actual.constraints, TextBaseline.alphabetic)! +
+        caret -
+        first -
+        (scroll.hasClients ? scroll.offset : 0);
+    return box.globalToLocal(actual.localToGlobal(Offset(0, baseline))).dy;
   }
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (editable() == null || gutter() == null) return;
     final offset = scroll.hasClients ? scroll.offset : 0.0;
     var lo = 0, hi = starts.length;
     while (lo < hi) {
@@ -362,7 +344,7 @@ class LineNumberPainter extends CustomPainter {
       }
     }
     for (var i = math.max(0, lo - 1); i < starts.length; i++) {
-      final top = y(i) + 12 - offset;
+      final top = baseline(i);
       if (top > size.height) break;
       if (top < -32) continue;
       final number = TextPainter(
@@ -378,14 +360,19 @@ class LineNumberPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
         textScaler: scaler,
       )..layout();
-      number.paint(canvas, Offset(size.width - number.width - 10, top));
+      number.paint(
+        canvas,
+        Offset(
+          size.width - number.width - 10,
+          top - number.computeDistanceToActualBaseline(TextBaseline.alphabetic),
+        ),
+      );
       number.dispose();
     }
   }
 
   @override
   bool shouldRepaint(covariant LineNumberPainter old) =>
-      old.layout != layout ||
       old.starts != starts ||
       old.currentLine != currentLine ||
       old.color != color ||

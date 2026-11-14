@@ -1,3 +1,4 @@
+import 'package:fastcat_ssh/ui/code_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fastcat_ssh/core/models.dart';
@@ -30,9 +31,14 @@ class CategoryStore extends Store {
   Future<String?> backgroundImage() async => null;
 }
 
-Finder field(String label) => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.labelText == label,
-);
+Finder field(String label) => ['命令内容', '文件内容'].contains(label)
+    ? find.descendant(
+        of: find.byWidgetPredicate((w) => w is CodeEditor && w.label == label),
+        matching: find.byType(TextField),
+      )
+    : find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == label,
+      );
 Future<void> open(WidgetTester tester, CategoryStore store) async {
   tester.view.physicalSize = const Size(1280, 850);
   tester.view.devicePixelRatio = 1;

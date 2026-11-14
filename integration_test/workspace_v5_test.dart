@@ -1,3 +1,4 @@
+import 'package:fastcat_ssh/ui/code_editor.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -102,8 +103,9 @@ void main() {
       expect(find.text('hello.txt'), findsNothing);
       await tester.tap(find.text('example.log'));
       await waitFor(find.byTooltip('跳转到行'));
-      final fileField = find.byWidgetPredicate(
-        (w) => w is TextField && w.decoration?.labelText == '文件内容',
+      final fileField = find.descendant(
+        of: find.byWidgetPredicate((w) => w is CodeEditor && w.label == '文件内容'),
+        matching: find.byType(TextField),
       );
       await tester.enterText(fileField, 'one\ntwo\nthree');
       await tester.pumpAndSettle();
@@ -126,9 +128,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('新建命令'));
       await tester.pumpAndSettle();
-      Finder field(String label) => find.byWidgetPredicate(
-        (w) => w is TextField && w.decoration?.labelText == label,
-      );
+      Finder field(String label) => label == '命令内容'
+          ? find.descendant(
+              of: find.byWidgetPredicate(
+                (w) => w is CodeEditor && w.label == label,
+              ),
+              matching: find.byType(TextField),
+            )
+          : find.byWidgetPredicate(
+              (w) => w is TextField && w.decoration?.labelText == label,
+            );
+
       await tester.enterText(field('命令名称'), 'Deferred');
       await tester.enterText(field('命令内容'), 'no-enter-marker');
       FocusManager.instance.primaryFocus?.unfocus();

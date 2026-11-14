@@ -1,12 +1,18 @@
+import 'package:fastcat_ssh/ui/code_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:fastcat_ssh/ui/workspace.dart';
 import '../test/category_management_test.dart' show CategoryStore;
 
-Finder field(String label) => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.labelText == label,
-);
+Finder field(String label) => ['命令内容', '文件内容'].contains(label)
+    ? find.descendant(
+        of: find.byWidgetPredicate((w) => w is CodeEditor && w.label == label),
+        matching: find.byType(TextField),
+      )
+    : find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == label,
+      );
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('mobile category menu rename delete and command action layout', (
