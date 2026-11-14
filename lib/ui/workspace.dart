@@ -69,7 +69,7 @@ class _WorkspaceState extends State<Workspace> {
       data = await widget.store.load();
       backgroundPath = await widget.store.backgroundImage();
       if (!data.categories.contains(selectedCategory)) {
-        selectedCategory = data.categories.first;
+        selectedCategory = data.categories.firstOrNull ?? '';
       }
       draftCategory = selectedCategory;
       if (mounted) {
@@ -1165,21 +1165,108 @@ class _WorkspaceState extends State<Workspace> {
 
   Future<void> newCategory() async {
     if (composerSaving) return;
-    final name = (await input(
-      '新建命令分类',
-      validator: (v) => data.categories.contains(v?.trim()) ? '此分类已存在' : null,
-    ))?.trim();
-    if (name == null) return;
-    setState(() {
-      data.categories.add(name);
-      selectedCategory = name;
-      if (previewSnippetId == null && !composerDirty) draftCategory = name;
-    });
-    await save();
+    setState(() => composerSaving = true);
+    try {
+      final name = (await input(
+        '新建命令分类',
+        validator: (v) => data.categories.contains(v?.trim()) ? '此分类已存在' : null,
+      ))?.trim();
+      if (name == null || !mounted) return;
+      final next = data.copy()..categories.add(name);
+      await widget.store.save(next);
+      if (!mounted) return;
+      setState(() {
+        data = next;
+        selectedCategory = name;
+        if (draftCategory.isEmpty ||
+            (previewSnippetId == null && !composerDirty)) {
+          draftCategory = name;
+        }
+        composerError = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => composerError = '分类保存失败，原数据已保留');
+    } finally {
+      if (mounted) setState(() => composerSaving = false);
+    }
+  }
+
+  Future<void> manageCategory(String category, String action) async {
+    if (composerSaving || !data.categories.contains(category)) return;
+    setState(() => composerSaving = true);
+    try {
+      final next = data.copy();
+      String? renamed;
+      final removedIds = <String>{};
+      if (action == 'edit') {
+        renamed = (await input(
+          '编辑命令分类',
+          initial: category,
+          validator: (v) =>
+              v?.trim() != category && data.categories.contains(v?.trim())
+              ? '此分类已存在'
+              : null,
+        ))?.trim();
+        if (renamed == null || renamed == category || !mounted) return;
+        next.categories[next.categories.indexOf(category)] = renamed;
+        next.snippets = [
+          for (final snippet in next.snippets)
+            if (snippet.category == category)
+              Snippet.fromJson({...snippet.toJson(), 'category': renamed})
+            else
+              snippet,
+        ];
+      } else if (action == 'delete') {
+        removedIds.addAll(
+          next.snippets.where((s) => s.category == category).map((s) => s.id),
+        );
+        if (removedIds.isNotEmpty &&
+            !await confirm(
+              '删除命令分类',
+              '“$category”下有 ${removedIds.length} 条命令，删除分类将同时删除这些命令，确定继续？',
+              action: '删除',
+            )) {
+          return;
+        }
+        if (!mounted) return;
+        next.snippets.removeWhere((s) => s.category == category);
+        next.categories.remove(category);
+      } else {
+        return;
+      }
+      await widget.store.save(next);
+      if (!mounted) return;
+      final dirty = composerDirty;
+      setState(() {
+        data = next;
+        final fallback = next.categories.firstOrNull ?? '';
+        if (selectedCategory == category) {
+          selectedCategory = renamed ?? fallback;
+        }
+        if (draftCategory == category) draftCategory = renamed ?? fallback;
+        if (removedIds.contains(previewSnippetId)) {
+          previewSnippetId = null;
+          if (!dirty) {
+            composerName.clear();
+            command.clear();
+            draftAppendNewline = true;
+          }
+        }
+        composerError = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => composerError = '分类修改失败，原数据已保留');
+    } finally {
+      if (mounted) setState(() => composerSaving = false);
+    }
   }
 
   Future<void> saveComposer() async {
     if (composerSaving) return;
+    if (!data.categories.contains(draftCategory)) {
+      setState(() => composerError = '请先新建命令分类');
+      return;
+    }
     if (composerName.text.trim().isEmpty || command.text.trim().isEmpty) {
       setState(() => composerError = '保存前请填写命令名称和内容');
       if (composerName.text.trim().isEmpty) composerNameFocus.requestFocus();
@@ -1270,16 +1357,31 @@ class _WorkspaceState extends State<Workspace> {
               for (final category in data.categories)
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: ChoiceChip(
-                    avatar: Icon(Icons.folder_outlined, size: 17),
-                    label: Text(category),
-                    selected: selectedCategory == category,
-                    onSelected: (_) => setState(() {
-                      selectedCategory = category;
-                      if (previewSnippetId == null && !composerDirty) {
-                        draftCategory = category;
-                      }
-                    }),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ChoiceChip(
+                        avatar: Icon(Icons.folder_outlined, size: 17),
+                        label: Text(category),
+                        selected: selectedCategory == category,
+                        onSelected: (_) => setState(() {
+                          selectedCategory = category;
+                          if (previewSnippetId == null && !composerDirty) {
+                            draftCategory = category;
+                          }
+                        }),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: '分类菜单 $category',
+                        icon: const Icon(Icons.more_vert, size: 20),
+                        onSelected: (action) =>
+                            run(() => manageCategory(category, action)),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('编辑')),
+                          PopupMenuItem(value: 'delete', child: Text('删除')),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               TextButton.icon(
@@ -1402,9 +1504,10 @@ class _WorkspaceState extends State<Workspace> {
                     key: ValueKey('composer-$draftCategory'),
                     initialValue: data.categories.contains(draftCategory)
                         ? draftCategory
-                        : data.categories.first,
+                        : data.categories.firstOrNull,
                     isExpanded: true,
                     decoration: InputDecoration(labelText: '分类'),
+                    hint: Text('请新建分类'),
                     items: data.categories
                         .map(
                           (c) => DropdownMenuItem(
@@ -1457,7 +1560,7 @@ class _WorkspaceState extends State<Workspace> {
                 ),
               ),
             SizedBox(
-              height: 32,
+              height: 40,
               child: Row(
                 children: [
                   Checkbox(
@@ -1480,8 +1583,17 @@ class _WorkspaceState extends State<Workspace> {
                       onPressed: composerSaving
                           ? null
                           : () => run(deleteComposer),
-                      icon: Icon(Icons.delete_outline, size: 18),
+                      icon: Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
+                  TextButton.icon(
+                    onPressed: composerSaving ? null : () => run(saveComposer),
+                    icon: Icon(Icons.save_outlined, size: 18),
+                    label: Text(composerSaving ? '保存中…' : '保存'),
+                  ),
                 ],
               ),
             ),
@@ -1491,14 +1603,6 @@ class _WorkspaceState extends State<Workspace> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    TextButton.icon(
-                      onPressed: composerSaving
-                          ? null
-                          : () => run(saveComposer),
-                      icon: Icon(Icons.save_outlined, size: 18),
-                      label: Text(composerSaving ? '保存中…' : '保存'),
-                    ),
-                    SizedBox(width: 6),
                     FilledButton(
                       onPressed:
                           composerSaving ||
@@ -2077,7 +2181,7 @@ class _WorkspaceState extends State<Workspace> {
     }
     setState(() {
       data = next;
-      selectedCategory = data.categories.first;
+      selectedCategory = data.categories.firstOrNull ?? '';
       previewSnippetId = null;
       command.clear();
       composerName.clear();

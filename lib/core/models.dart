@@ -175,7 +175,6 @@ class AppData {
           ? j['terminalColor'] as String
           : 'default',
       categories: {
-        '默认分类',
         ...((j['categories'] as List?)?.cast<String>() ?? ['默认分类']),
         ...(j['snippets'] as List).map(
           (e) => e['category'] as String? ?? '默认分类',

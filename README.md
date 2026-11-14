@@ -199,3 +199,13 @@ No Apple certificates, provisioning profiles, production Android keys or user ba
 files are included in the repository or needed for these builds. Android test keys
 may differ between cloud runs, so those APKs are not guaranteed to upgrade each other.
 Signed store distribution can be configured separately with repository secrets.
+
+## 0.5.4 command folder management
+
+Each command folder now has a vertical three-dot menu with Edit and Delete.
+Renaming updates saved command membership and the current editor's category without
+rewriting command content. Empty folders delete immediately; populated folders ask
+before deleting the folder and its commands. Explicitly deleted folders stay deleted
+after reload, including the last folder; create a folder before saving new commands.
+Unsaved editor changes are retained as a draft when their folder is deleted.
+The command editor's Save button sits directly to the right of the red Delete icon.
