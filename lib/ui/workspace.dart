@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'app_input.dart';
@@ -63,6 +64,7 @@ class _WorkspaceState extends State<Workspace> {
   Future<void> Function()? retryUpload;
   final sessions = <Connection>[];
   final path = TextEditingController();
+  final directorySelectionKey = GlobalKey();
   final command = SyntaxController();
   final catalogScroll = ScrollController();
   final catalogKey = GlobalKey();
@@ -174,7 +176,11 @@ class _WorkspaceState extends State<Workspace> {
     ),
   );
 
-  Future<void> editHost([Host? existing, String? defaultGroup]) async {
+  Future<void> editHost([
+    Host? existing,
+    String? defaultGroup,
+    bool copy = false,
+  ]) async {
     final old = existing == null
         ? null
         : await widget.store.credential(existing.id);
@@ -182,17 +188,21 @@ class _WorkspaceState extends State<Workspace> {
     final auth = old == null
         ? <String, dynamic>{}
         : jsonDecode(old) as Map<String, dynamic>;
+    final editingHost = copy && existing != null
+        ? Host.fromJson({...existing.toJson(), 'id': newId()})
+        : existing;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => HostEditor(
-        host: existing,
+        host: editingHost,
+        copying: copy,
         groups: data.groups,
         defaultGroup: defaultGroup,
         hosts: data.hosts,
         auth: auth,
         onSave: (host, credentials) async {
-          final before = old;
+          final before = copy ? null : old;
           final next = data.copy();
           next.hosts.removeWhere((h) => h.id == host.id);
           next.hosts.add(host);
@@ -263,6 +273,15 @@ class _WorkspaceState extends State<Workspace> {
       if (mounted && current == s) path.text = s.path;
       data.visit(s.host.id, s.path);
       await save();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final selected = directorySelectionKey.currentContext;
+        if (mounted && selected != null) {
+          Scrollable.ensureVisible(
+            selected,
+            alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+          );
+        }
+      });
     });
   }
 
@@ -409,6 +428,8 @@ class _WorkspaceState extends State<Workspace> {
       onSelected: (v) => run(() async {
         if (v == 'edit') {
           await editHost(h);
+        } else if (v == 'copy') {
+          await editHost(h, h.group, true);
         } else if (await confirm('删除服务器', h.name)) {
           if (data.hosts.any((x) => x.jumpId == h.id)) {
             throw StateError('请先解除使用此服务器的跳板机配置');
@@ -420,6 +441,7 @@ class _WorkspaceState extends State<Workspace> {
       }),
       itemBuilder: (_) => [
         PopupMenuItem(value: 'edit', child: Text('编辑')),
+        PopupMenuItem(value: 'copy', child: Text('复制')),
         PopupMenuItem(value: 'delete', child: Text('删除')),
       ],
     ),
@@ -784,6 +806,53 @@ class _WorkspaceState extends State<Workspace> {
       Expanded(child: tool == 0 ? filesPanel() : snippetsPanel()),
     ],
   );
+  Future<void> removeDirectoryRecord(
+    String value, {
+    required bool favorite,
+  }) async {
+    if (favorite &&
+        !await confirm(
+          '删除收藏目录',
+          '确定从收藏列表移除“$value”？不会删除服务器上的目录。',
+          action: '删除',
+        )) {
+      return;
+    }
+    if (!mounted) return;
+    final next = data.copy();
+    final records = favorite ? next.favorites : next.history;
+    records['global']?.remove(value);
+    await widget.store.save(next);
+    if (mounted) setState(() => data = next);
+  }
+
+  PopupMenuItem<String> directoryRecordItem(
+    BuildContext menuContext,
+    String value, {
+    required bool favorite,
+  }) => PopupMenuItem(
+    value: value,
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(value, maxLines: 2, overflow: TextOverflow.ellipsis),
+        ),
+        IconButton(
+          tooltip: favorite ? '删除收藏 $value' : '删除历史 $value',
+          icon: Icon(
+            Icons.delete_outline,
+            size: 18,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          onPressed: () {
+            Navigator.of(menuContext).pop();
+            run(() => removeDirectoryRecord(value, favorite: favorite));
+          },
+        ),
+      ],
+    ),
+  );
+
   Widget filesPanel() {
     final s = current;
     return Column(
@@ -820,7 +889,7 @@ class _WorkspaceState extends State<Workspace> {
                 }),
                 itemBuilder: (_) => [
                   for (final p in data.history['global'] ?? <String>[])
-                    PopupMenuItem(value: p, child: Text(p)),
+                    directoryRecordItem(context, p, favorite: false),
                   PopupMenuItem(value: '__clear', child: Text('清空目录历史')),
                 ],
               ),
@@ -847,7 +916,7 @@ class _WorkspaceState extends State<Workspace> {
                     child: Text('收藏当前目录'),
                   ),
                   for (final p in data.favorites['global'] ?? <String>[])
-                    PopupMenuItem(value: p, child: Text(p)),
+                    directoryRecordItem(context, p, favorite: true),
                 ],
               ),
             ],
@@ -931,7 +1000,7 @@ class _WorkspaceState extends State<Workspace> {
 
   Widget directoryFiles(Connection s) => LayoutBuilder(
     builder: (context, bounds) {
-      final files = s.files.where((f) => !f.attr.isDirectory).toList();
+      final files = s.files;
       return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -961,70 +1030,172 @@ class _WorkspaceState extends State<Workspace> {
           ),
           VerticalDivider(width: 1),
           Expanded(
-            child: Column(
-              children: [
-                Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Text(
-                    '当前目录文件 · ${files.length}',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+            child: LayoutBuilder(
+              builder: (context, tableBounds) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: math.max(920, tableBounds.maxWidth),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 38,
+                        child: fileTableRow(const [
+                          '文件名',
+                          '大小',
+                          '类型',
+                          '修改时间',
+                          '权限',
+                        ], header: true),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: files.isEmpty
+                            ? const Center(child: Text('此目录为空'))
+                            : ListView.builder(
+                                itemCount: files.length,
+                                itemBuilder: (context, i) {
+                                  final file = files[i];
+                                  final type = file.attr.isDirectory
+                                      ? '文件夹'
+                                      : file.attr.isSymbolicLink
+                                      ? '符号链接'
+                                      : file.filename.contains('.')
+                                      ? '${file.filename.split('.').last.toUpperCase()} 文件'
+                                      : '文件';
+                                  final stamp = file.attr.modifyTime == null
+                                      ? '—'
+                                      : DateTime.fromMillisecondsSinceEpoch(
+                                          file.attr.modifyTime! * 1000,
+                                        ).toLocal().toString().substring(0, 19);
+                                  return Material(
+                                    color: i.isEven
+                                        ? Theme.of(context).colorScheme.surface
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.surfaceContainerLow,
+                                    child: InkWell(
+                                      onTap: () => run(
+                                        () => file.attr.isDirectory
+                                            ? navigate(
+                                                s.child(file.filename),
+                                                target: s,
+                                              )
+                                            : editFile(s, file),
+                                      ),
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: fileTableRow(
+                                          [
+                                            file.filename,
+                                            file.attr.isDirectory
+                                                ? '—'
+                                                : formatBytes(file.attr.size),
+                                            type,
+                                            stamp,
+                                            permissionText(file.attr),
+                                          ],
+                                          file: file,
+                                          connection: s,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-                Expanded(
-                  child: files.isEmpty
-                      ? Center(child: Text('此目录没有文件'))
-                      : ListView.builder(
-                          itemCount: files.length,
-                          itemBuilder: (_, i) {
-                            final file = files[i];
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              leading: Icon(
-                                Icons.insert_drive_file_outlined,
-                                size: 18,
-                              ),
-                              title: Text(
-                                file.filename,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                formatBytes(file.attr.size),
-                                style: TextStyle(fontSize: 10),
-                              ),
-                              onTap: () => run(() => editFile(s, file)),
-                              trailing: PopupMenuButton<String>(
-                                onSelected: (v) =>
-                                    run(() => fileAction(s, file, v)),
-                                itemBuilder: (_) => [
-                                  PopupMenuItem(
-                                    value: 'download',
-                                    child: Text('下载'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'rename',
-                                    child: Text('重命名'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('删除'),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
       );
     },
   );
+  String permissionText(SftpFileAttrs attr) {
+    final value = attr.mode?.value;
+    if (value == null) return '—';
+    final chars = <String>[
+      attr.isDirectory
+          ? 'd'
+          : attr.isSymbolicLink
+          ? 'l'
+          : '-',
+    ];
+    for (var shift = 6; shift >= 0; shift -= 3) {
+      chars.add((value & (4 << shift)) != 0 ? 'r' : '-');
+      chars.add((value & (2 << shift)) != 0 ? 'w' : '-');
+      chars.add((value & (1 << shift)) != 0 ? 'x' : '-');
+    }
+    if ((value & 2048) != 0) chars[3] = chars[3] == 'x' ? 's' : 'S';
+    if ((value & 1024) != 0) chars[6] = chars[6] == 'x' ? 's' : 'S';
+    if ((value & 512) != 0) chars[9] = chars[9] == 'x' ? 't' : 'T';
+    return chars.join();
+  }
+
+  Widget fileTableRow(
+    List<String> values, {
+    bool header = false,
+    SftpName? file,
+    Connection? connection,
+  }) => Row(
+    children: [
+      for (var i = 0; i < values.length; i++)
+        Expanded(
+          flex: [5, 2, 2, 4, 3][i],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                if (i == 0 && file != null) ...[
+                  Icon(
+                    file.attr.isDirectory
+                        ? Icons.folder
+                        : Icons.insert_drive_file_outlined,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: Tooltip(
+                    message: values[i],
+                    child: Text(
+                      values[i],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: header
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      SizedBox(
+        width: 48,
+        child: file == null
+            ? null
+            : PopupMenuButton<String>(
+                tooltip: '文件操作 ${file.filename}',
+                onSelected: (v) => run(() => fileAction(connection!, file, v)),
+                itemBuilder: (_) => [
+                  if (!file.attr.isDirectory)
+                    const PopupMenuItem(value: 'download', child: Text('下载')),
+                  const PopupMenuItem(value: 'rename', child: Text('重命名')),
+                  if (!file.attr.isSymbolicLink)
+                    const PopupMenuItem(value: 'chmod', child: Text('修改权限')),
+                  const PopupMenuItem(value: 'delete', child: Text('删除')),
+                ],
+              ),
+      ),
+    ],
+  );
+
   List<Widget> directoryNodes(
     Connection s,
     String directory,
@@ -1039,6 +1210,7 @@ class _WorkspaceState extends State<Workspace> {
               directory;
     return [
       Material(
+        key: s.path == directory ? directorySelectionKey : null,
         color: s.path == directory
             ? Theme.of(context).colorScheme.secondaryContainer
             : Colors.transparent,
@@ -1124,6 +1296,30 @@ class _WorkspaceState extends State<Workspace> {
       }
       await FilePicker.saveFile(fileName: f.filename, bytes: bytes);
       message('下载已完成或取消');
+    }
+    if (action == 'chmod') {
+      final mode = await input(
+        '修改文件权限',
+        initial: f.attr.mode == null
+            ? ''
+            : (f.attr.mode!.value & 4095).toRadixString(8).padLeft(3, '0'),
+        helper:
+            '输入三位或四位八进制权限，例如 755 或 0644。仅修改当前项，不递归；Windows 服务端可能不支持 POSIX 权限。',
+        validator: (v) =>
+            RegExp(r'^[0-7]{3,4}$').hasMatch(v ?? '') ? null : '请输入三位或四位八进制权限',
+      );
+      if (mode == null) return;
+      if (!await confirm(
+        '确认修改权限',
+        '$remote\n权限将改为 $mode，仅作用于当前项。',
+        action: '修改',
+      )) {
+        return;
+      }
+      await s.sftp!.setStat(
+        remote,
+        SftpFileAttrs(mode: SftpFileMode.value(int.parse(mode, radix: 8))),
+      );
     }
     if (action == 'rename') {
       final name = await input(

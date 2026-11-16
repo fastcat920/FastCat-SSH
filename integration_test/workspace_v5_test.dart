@@ -97,9 +97,12 @@ void main() {
       );
       expect(find.text('目录'), findsOneWidget);
       expect(find.text('hello.txt'), findsOneWidget);
-      await tester.tap(find.text('logs'));
+      await tester.tap(find.text('logs').first);
       await waitFor(find.text('example.log'));
-      expect(find.text('archive'), findsOneWidget);
+      expect(find.text('archive'), findsWidgets);
+      for (final column in ['文件名', '大小', '类型', '修改时间', '权限']) {
+        expect(find.text(column), findsOneWidget);
+      }
       expect(find.text('hello.txt'), findsNothing);
       await tester.tap(find.text('example.log'));
       await waitFor(find.byTooltip('跳转到行'));

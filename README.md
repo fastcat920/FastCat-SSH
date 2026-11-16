@@ -237,3 +237,14 @@ host IDs, credentials, group order and collapsed state. Long-press group headers
 reorder groups, with order saved locally and included in backups.
 The command editor is narrower on desktop and shorter on mobile. Folder menus now
 share the folder border, and command/folder action spacing is tighter.
+
+## 0.5.7 file browser and server copies
+
+The file pane lists folders and files with size, type, modification time and POSIX
+permissions, and tracks the selected subfolder in the directory tree. Its action
+menu can change the current item's octal permissions without recursion, after
+confirmation; Windows support depends on the SSH/SFTP server. Directory history
+entries can be removed individually; favorites require confirmation to remove.
+Server menus include Copy, which opens prefilled details and credentials and saves
+under a new ID only on confirmation. Cancelling leaves the original unchanged.
+Manual Actions runs accept `platforms: apple` for macOS and iOS only (plus tests).

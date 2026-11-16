@@ -72,6 +72,11 @@ void main() {
       final read = await sftp.open('test-dir/new.txt');
       expect(utf8.decode(await read.readBytes()), '你好 FastCat');
       await read.close();
+      await sftp.setStat(
+        'test-dir/new.txt',
+        SftpFileAttrs(mode: const SftpFileMode.value(416)),
+      );
+      expect((await sftp.stat('test-dir/new.txt')).mode!.value & 511, 416);
       await sftp.rename('test-dir/new.txt', 'test-dir/renamed.txt');
       await sftp.remove('test-dir/renamed.txt');
       await sftp.rmdir('test-dir');

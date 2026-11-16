@@ -7,6 +7,7 @@ import 'password_field.dart';
 
 class HostEditor extends StatefulWidget {
   final Host? host;
+  final bool copying;
   final List<String> groups;
   final String? defaultGroup;
   final List<Host> hosts;
@@ -15,6 +16,7 @@ class HostEditor extends StatefulWidget {
   const HostEditor({
     super.key,
     this.host,
+    this.copying = false,
     this.groups = const [],
     this.defaultGroup,
     required this.hosts,
@@ -142,7 +144,13 @@ class _HostEditorState extends State<HostEditor> {
     child: PopScope(
       canPop: !saving,
       child: AlertDialog(
-        title: Text(widget.host == null ? '添加服务器' : '编辑服务器'),
+        title: Text(
+          widget.copying
+              ? '复制服务器'
+              : widget.host == null
+              ? '添加服务器'
+              : '编辑服务器',
+        ),
         content: SizedBox(
           width: 560,
           child: SingleChildScrollView(
