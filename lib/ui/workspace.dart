@@ -13,6 +13,8 @@ import 'backup_import_dialog.dart';
 import 'metrics_strip.dart';
 import 'code_editor.dart';
 import 'session_tabs.dart';
+import 'terminal_selection_scroll.dart';
+import 'terminal_mobile_keys.dart';
 import '../core/host_metrics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -715,31 +717,12 @@ class _WorkspaceState extends State<Workspace> {
             ),
           ),
         if (current != null && MediaQuery.sizeOf(context).width < 760)
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (final key in {
-                  'Esc': '\x1b',
-                  'Tab': '\t',
-                  'Ctrl+C': '\x03',
-                  'Ctrl+D': '\x04',
-                  '←': '\x1b[D',
-                  '↑': '\x1b[A',
-                  '↓': '\x1b[B',
-                  '→': '\x1b[C',
-                }.entries)
-                  TextButton(
-                    onPressed: current!.status != '已连接'
-                        ? null
-                        : () => run(() async {
-                            current!.send(key.value);
-                          }),
-                    child: Text(key.key),
-                  ),
-              ],
-            ),
+          TerminalMobileKeys(
+            onSend: current!.status != '已连接'
+                ? null
+                : (value) => run(() async {
+                    current!.send(value);
+                  }),
           ),
         if (current != null)
           Container(
@@ -2446,53 +2429,60 @@ class _WorkspaceState extends State<Workspace> {
             cacheWidth: 1920,
             errorBuilder: (_, _, _) => SizedBox.shrink(),
           ),
-        TerminalView(
-          s.terminal,
-          controller: terminalControllers[s],
-          keyboardAppearance: dark ? Brightness.dark : Brightness.light,
-          onKeyEvent: (node, event) {
-            final keyboard = HardwareKeyboard.instance;
-            final apple =
-                defaultTargetPlatform == TargetPlatform.macOS ||
-                defaultTargetPlatform == TargetPlatform.iOS;
-            final modifier = apple
-                ? keyboard.isMetaPressed
-                : keyboard.isControlPressed;
-            if (event is KeyDownEvent &&
-                modifier &&
-                event.logicalKey == LogicalKeyboardKey.keyV) {
-              run(() => pasteTerminal(s));
-              return KeyEventResult.handled;
-            }
-            if (event is KeyDownEvent &&
-                modifier &&
-                event.logicalKey == LogicalKeyboardKey.keyC &&
-                (apple || keyboard.isShiftPressed)) {
-              run(() => copyTerminal(s));
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          theme: theme,
-          backgroundOpacity: backgroundPath == null ? 1 : .85,
-          padding: EdgeInsets.all(12),
-          onSecondaryTapUp: (details, offset) async {
-            final action = await showMenu<String>(
-              context: context,
-              position: RelativeRect.fromLTRB(
-                details.globalPosition.dx,
-                details.globalPosition.dy,
-                0,
-                0,
-              ),
-              items: [
-                PopupMenuItem(value: 'copy', child: Text('复制选中文字')),
-                PopupMenuItem(value: 'paste', child: Text('粘贴')),
-              ],
-            );
-            if (action == 'copy') await run(() => copyTerminal(s));
-            if (action == 'paste') await run(() => pasteTerminal(s));
-          },
+        TerminalSelectionScroll(
+          key: ObjectKey(s),
+          terminal: s.terminal,
+          controller: terminalControllers[s]!,
+          builder: (viewKey, scroll) => TerminalView(
+            s.terminal,
+            key: viewKey,
+            scrollController: scroll,
+            controller: terminalControllers[s],
+            keyboardAppearance: dark ? Brightness.dark : Brightness.light,
+            onKeyEvent: (node, event) {
+              final keyboard = HardwareKeyboard.instance;
+              final apple =
+                  defaultTargetPlatform == TargetPlatform.macOS ||
+                  defaultTargetPlatform == TargetPlatform.iOS;
+              final modifier = apple
+                  ? keyboard.isMetaPressed
+                  : keyboard.isControlPressed;
+              if (event is KeyDownEvent &&
+                  modifier &&
+                  event.logicalKey == LogicalKeyboardKey.keyV) {
+                run(() => pasteTerminal(s));
+                return KeyEventResult.handled;
+              }
+              if (event is KeyDownEvent &&
+                  modifier &&
+                  event.logicalKey == LogicalKeyboardKey.keyC &&
+                  (apple || keyboard.isShiftPressed)) {
+                run(() => copyTerminal(s));
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            theme: theme,
+            backgroundOpacity: backgroundPath == null ? 1 : .85,
+            padding: EdgeInsets.all(12),
+            onSecondaryTapUp: (details, offset) async {
+              final action = await showMenu<String>(
+                context: context,
+                position: RelativeRect.fromLTRB(
+                  details.globalPosition.dx,
+                  details.globalPosition.dy,
+                  0,
+                  0,
+                ),
+                items: [
+                  PopupMenuItem(value: 'copy', child: Text('复制选中文字')),
+                  PopupMenuItem(value: 'paste', child: Text('粘贴')),
+                ],
+              );
+              if (action == 'copy') await run(() => copyTerminal(s));
+              if (action == 'paste') await run(() => pasteTerminal(s));
+            },
+          ),
         ),
       ],
     );

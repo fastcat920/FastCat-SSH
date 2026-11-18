@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 
 /// Multiline editor with a logical-line gutter. Wrapped continuation rows do not
 /// increment file line numbers. Source and line endings are never rewritten.
@@ -412,7 +411,6 @@ class _LineDialogState extends State<_LineDialog> {
         autofocus: true,
         keyboardType: TextInputType.number,
         textInputAction: TextInputAction.go,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
           labelText: '行号',
           hintText: '1–${widget.max}',

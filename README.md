@@ -248,3 +248,12 @@ entries can be removed individually; favorites require confirmation to remove.
 Server menus include Copy, which opens prefilled details and credentials and saves
 under a new ID only on confirmation. Cancelling leaves the original unchanged.
 Manual Actions runs accept `platforms: apple` for macOS and iOS only (plus tests).
+
+## 0.5.8 terminal selection and mobile keys
+
+Dragging a terminal selection near the top or bottom scrolls the viewport and
+extends the selection until release. Mobile terminal keys occupy two fixed rows,
+including Enter, hide keyboard, Ctrl+Z, Home/End and Backspace. Technical inputs
+request a keyboard suited to their content; numeric validation preserves invalid
+drafts instead of silently filtering input. Manual Actions runs also accept
+`platforms: macos` to build only the Mac client plus verification.

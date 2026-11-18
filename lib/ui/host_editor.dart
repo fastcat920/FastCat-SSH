@@ -186,10 +186,6 @@ class _HostEditorState extends State<HostEditor> {
                           hint: '22',
                           code: true,
                           keyboard: TextInputType.number,
-                          formatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(5),
-                          ],
                           validator: (v) {
                             final port = int.tryParse(v ?? '');
                             return port == null || port < 1 || port > 65535

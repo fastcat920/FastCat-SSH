@@ -10,7 +10,7 @@ on:
         description: Platforms to build
         type: choice
         default: all
-        options: [all, apple]
+        options: [all, apple, macos]
 
 permissions:
   contents: read
@@ -61,7 +61,7 @@ jobs:
           python tool/verify_synthetic_backup.py
 
   windows:
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'apple'
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all'
     name: Windows release
     runs-on: windows-latest
     timeout-minutes: 40
@@ -107,7 +107,7 @@ jobs:
           retention-days: 14
 
   android:
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'apple'
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all'
     name: Android release (test key)
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -132,6 +132,7 @@ jobs:
           retention-days: 14
 
   ios:
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
     name: iOS unsigned and simulator
     runs-on: macos-15
     timeout-minutes: 45

@@ -58,7 +58,11 @@ class AppInput extends StatelessWidget {
           : SmartQuotesType.enabled,
       keyboardType:
           keyboardType ??
-          (multiline ? TextInputType.multiline : TextInputType.text),
+          (multiline
+              ? TextInputType.multiline
+              : code
+              ? TextInputType.visiblePassword
+              : TextInputType.text),
       textInputAction:
           action ??
           (multiline ? TextInputAction.newline : TextInputAction.done),
